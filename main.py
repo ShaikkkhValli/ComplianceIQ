@@ -1,5 +1,5 @@
 def main():
-    print("Hello from automated-research-report-generation!")
+    print("Hello from ComplianceIQ!")
 
 
 if __name__ == "__main__":
