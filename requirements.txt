@@ -5,3 +5,4 @@ pdfplumber
 networkx
 langfuse
 gradio
+python-dotenv
