@@ -1,8 +1,12 @@
 langchain
 openai
 chromadb
-pdfplumber
+PdfReader
 networkx
 langfuse
 gradio
 python-dotenv
+PyPDF2
+python-docx
+litellm
+langchain-openai
