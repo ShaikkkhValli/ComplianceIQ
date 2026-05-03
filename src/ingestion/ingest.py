@@ -6,8 +6,8 @@ import json
 # Add src to path so imports resolve correctly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from ingestion.pdfLoader import PDFLoader
-from ingestion.docxLoader import DOCXLoader
+from ingestion.pdf_loader import PDFLoader
+from ingestion.docx_loader import DOCXLoader
 
 from PyPDF2 import PdfReader
 from docx import Document
