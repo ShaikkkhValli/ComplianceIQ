@@ -32,6 +32,11 @@ REMEDIATION_FILE: Path  = PROCESSED_DIR / "remediation_plan.jsonl"
 AUDIT_LOG_FILE: Path    = PROCESSED_DIR / "audit_log.jsonl"
 HISTORY_FILE: Path      = PROCESSED_DIR / "assessment_history.jsonl"
 
+# ── Reporting (Week 8) ────────────────────────────────────────
+REPORTS_DIR: Path       = PROJECT_ROOT / "reports"
+REPORT_DOCX_FILE: Path  = REPORTS_DIR / "compliance_assessment_report.docx"
+REPORT_MD_FILE: Path    = REPORTS_DIR / "compliance_assessment_report.md"
+
 # ── Knowledge graph (Week 6) ──────────────────────────────────
 GRAPH_DIR: Path         = DATA_DIR / "graph"
 GRAPH_FILE: Path        = GRAPH_DIR / "compliance_graph.graphml"
@@ -72,6 +77,10 @@ def ensure_chroma_dir() -> None:
 
 def ensure_graph_dir() -> None:
     GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_reports_dir() -> None:
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def require_openai_key() -> str:
