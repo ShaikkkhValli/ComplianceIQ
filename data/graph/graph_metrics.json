@@ -1,0 +1,14 @@
+{
+  "total_nodes": 15,
+  "total_edges": 27,
+  "node_types": {
+    "requirement": 13,
+    "domain": 1,
+    "regulatory_file": 1
+  },
+  "requirement_coverage": {
+    "unknown": 13
+  },
+  "orphan_requirement_count": 13,
+  "top_cited_policies": []
+}

@@ -1,12 +1,15 @@
 langchain
+langchain-openai
+langchain-text-splitters
 openai
 chromadb
-PdfReader
 networkx
+matplotlib
 langfuse
 gradio
 python-dotenv
 PyPDF2
+pdfplumber
 python-docx
 litellm
-langchain-openai
+pydantic>=2.0

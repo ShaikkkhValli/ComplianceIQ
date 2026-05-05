@@ -1,0 +1,110 @@
+"""Common base for Week 4 agents.
+
+Each agent shares the LLM client and a lazy reference to the vector store.
+Subclasses build their own LCEL chains via `make_chain(schema)`.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Iterable
+
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+
+from complianceiq.config import LLM_MODEL, LLM_TEMPERATURE, require_openai_key
+from complianceiq.models import Requirement
+from complianceiq.observability import tracing
+from complianceiq.vectorstore.store import ChromaStore
+
+logger = logging.getLogger(__name__)
+
+
+def load_requirements(path: Path) -> list[Requirement]:
+    """Read requirements.jsonl into a list of Pydantic objects."""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Run `python main.py ingest --extract` first."
+        )
+    out: list[Requirement] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(Requirement.model_validate_json(line))
+            except Exception as e:
+                logger.warning("Skipping malformed line %d in %s: %s", line_no, path, e)
+    return out
+
+
+def write_jsonl(path: Path, records: Iterable) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for r in records:
+            payload = r.model_dump(mode="json") if hasattr(r, "model_dump") else r
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    logger.info("Wrote %s", path)
+
+
+class BaseAgent:
+    """Shared scaffolding: LLM, vector store, chain factory."""
+
+    def __init__(
+        self,
+        model: str = LLM_MODEL,
+        temperature: float = LLM_TEMPERATURE,
+        store: ChromaStore | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        require_openai_key()
+        self.model_name = model
+        self.llm = ChatOpenAI(model=model, temperature=temperature)
+        self._store = store
+        self.run_id = run_id  # session id propagated into Langfuse traces
+
+    @property
+    def store(self) -> ChromaStore:
+        if self._store is None:
+            self._store = ChromaStore.load()
+        return self._store
+
+    def make_chain(
+        self,
+        system_prompt: str,
+        user_template: str,
+        schema,
+        agent_name: str | None = None,
+    ):
+        """Build a `prompt | llm.with_structured_output(schema)` chain.
+
+        If Langfuse tracing is enabled, the chain is pre-configured with the
+        callback handler and metadata via `.with_config(...)` so every
+        `chain.invoke()` is automatically traced. agent_name is used as a
+        Langfuse tag and as the trace_name.
+        """
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("user", user_template),
+        ])
+        chain = prompt | self.llm.with_structured_output(schema)
+
+        handler = tracing.get_handler()
+        config: dict = {}
+        if handler is not None:
+            config["callbacks"] = [handler]
+        tags = ["compliance"]
+        metadata: dict = {"model": self.model_name}
+        if agent_name:
+            tags.append(agent_name)
+            metadata["agent"] = agent_name
+            metadata["trace_name"] = agent_name
+        if self.run_id:
+            metadata["session_id"] = self.run_id
+        config["tags"] = tags
+        config["metadata"] = metadata
+
+        return chain.with_config(config)

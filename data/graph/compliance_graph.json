@@ -1,0 +1,271 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "type": "requirement",
+      "text": "insurance and reinsurance companies are required to implement management systems that will assure correct and prudent management of the business in consideration of its nature, scale and complexity.",
+      "mandatory_action": "Insurance and reinsurance companies must implement management systems for prudent business management.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:d59ed6cc90812948"
+    },
+    {
+      "type": "domain",
+      "name": "internal_audit",
+      "id": "domain:internal_audit"
+    },
+    {
+      "type": "regulatory_file",
+      "name": "Audit COntol for Insurance Companies.pdf",
+      "id": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "type": "requirement",
+      "text": "Insurance and reinsurance companies are required to maintain written rules of risk management, internal controls, internal audits and outsourcing, to be reviewed annually, mainly in the framework of n",
+      "mandatory_action": "Insurance and reinsurance companies must maintain and annually review written rules of risk management, internal controls, internal audits, and outsourcing.",
+      "domain": "internal_audit",
+      "severity": "medium",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:c14a582185522129"
+    },
+    {
+      "type": "requirement",
+      "text": "they should be subject to regular internal reviews every year as a minimum",
+      "mandatory_action": "Conduct regular internal reviews of the control mechanisms at least annually.",
+      "domain": "internal_audit",
+      "severity": "medium",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:8287989818165e19"
+    },
+    {
+      "type": "requirement",
+      "text": "they should be approved by an administrative, management or supervisory authority",
+      "mandatory_action": "Obtain approval of the control mechanisms from the relevant authority.",
+      "domain": "internal_audit",
+      "severity": "medium",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:140c8c904665220f"
+    },
+    {
+      "type": "requirement",
+      "text": "a control system should be verified by a supervisory authority with regard to risks identified by the insurer that may affect adequate financial standing",
+      "mandatory_action": "A control system must be verified by a supervisory authority regarding identified risks.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:c63701fb77e9ffa8"
+    },
+    {
+      "type": "requirement",
+      "text": "a supervisory authority should have the right to require improvement and strengthening of the management system",
+      "mandatory_action": "A supervisory authority must have the right to mandate improvements to the management system.",
+      "domain": "internal_audit",
+      "severity": "medium",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:8dcd9e5db1f7803e"
+    },
+    {
+      "type": "requirement",
+      "text": "rules of risk management, internal audit, internal control and outsourcing should be executed in writing",
+      "mandatory_action": "Rules of risk management, internal audit, internal control, and outsourcing must be documented in writing.",
+      "domain": "internal_audit",
+      "severity": "medium",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:31558987c10cfdc6"
+    },
+    {
+      "type": "requirement",
+      "text": "companies were required to establish audit committees by 6 December, 2009, i.e. within six months of the effective date of the amended Expert Auditors Act.",
+      "mandatory_action": "Companies must establish audit committees by the specified deadline.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:11ef0486a4a50a3b"
+    },
+    {
+      "type": "requirement",
+      "text": "companies were required to establish by 6 December, 2009, i.e. within six months of the effective date of the amended Expert Auditors Act.",
+      "mandatory_action": "Companies must establish an audit committee by December 6, 2009.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:0f313b48ee24e598"
+    },
+    {
+      "type": "requirement",
+      "text": "Audit committees must have a minimum of three members, including at least one independent member with accounting or financial auditing qualifications.",
+      "mandatory_action": "Audit committees must consist of at least three members, including one independent member with relevant qualifications.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:2d74a8853bb49ec7"
+    },
+    {
+      "type": "requirement",
+      "text": "audit commissions consisting of a minimum of 3 members, including at least 1 member meeting the conditions of independence with accounting or financial auditing qualifications",
+      "mandatory_action": "Audit commissions must consist of a minimum of 3 members, including at least 1 independent member with accounting or financial auditing qualifications.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:404df656a590cac1"
+    },
+    {
+      "type": "requirement",
+      "text": "supervisory boards comprising not more than 5 members",
+      "mandatory_action": "Supervisory boards must comprise no more than 5 members.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:3b8357525b4a759c"
+    },
+    {
+      "type": "requirement",
+      "text": "businesses are obliged to set them up and supply them with relevant instruments and mechanisms of control.",
+      "mandatory_action": "Businesses must establish audit committees and provide them with necessary tools and controls.",
+      "domain": "internal_audit",
+      "severity": "high",
+      "source_file": "Audit COntol for Insurance Companies.pdf",
+      "id": "req:b631e5e79b3c3543"
+    }
+  ],
+  "edges": [
+    {
+      "relation": "from_file",
+      "source": "req:d59ed6cc90812948",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:d59ed6cc90812948"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:c14a582185522129"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:8287989818165e19"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:140c8c904665220f"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:c63701fb77e9ffa8"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:8dcd9e5db1f7803e"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:31558987c10cfdc6"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:11ef0486a4a50a3b"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:0f313b48ee24e598"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:2d74a8853bb49ec7"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:404df656a590cac1"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:3b8357525b4a759c"
+    },
+    {
+      "relation": "contains",
+      "source": "domain:internal_audit",
+      "target": "req:b631e5e79b3c3543"
+    },
+    {
+      "relation": "in_domain",
+      "source": "reg_file:Audit COntol for Insurance Companies.pdf",
+      "target": "domain:internal_audit"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:c14a582185522129",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:8287989818165e19",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:140c8c904665220f",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:c63701fb77e9ffa8",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:8dcd9e5db1f7803e",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:31558987c10cfdc6",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:11ef0486a4a50a3b",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:0f313b48ee24e598",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:2d74a8853bb49ec7",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:404df656a590cac1",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:3b8357525b4a759c",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    },
+    {
+      "relation": "from_file",
+      "source": "req:b631e5e79b3c3543",
+      "target": "reg_file:Audit COntol for Insurance Companies.pdf"
+    }
+  ]
+}

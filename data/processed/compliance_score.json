@@ -1,0 +1,24 @@
+{
+  "overall_score": 0.179,
+  "weighted_overall_score": 0.162,
+  "total_requirements": 14,
+  "fully_covered": 0,
+  "partially_covered": 5,
+  "not_covered": 9,
+  "high_priority_gaps": 13,
+  "by_domain": [
+    {
+      "domain": "internal_audit",
+      "total_requirements": 14,
+      "fully_covered": 0,
+      "partially_covered": 5,
+      "not_covered": 9,
+      "coverage_score": 0.179,
+      "weighted_score": 0.162,
+      "high_severity_open": 9,
+      "medium_severity_open": 5,
+      "low_severity_open": 0
+    }
+  ],
+  "risk_summary": "Org-wide weighted coverage 0.16. 13 high-priority open gaps. Weakest domains: internal_audit."
+}
