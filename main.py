@@ -33,6 +33,11 @@ Usage:
     python main.py graph-build                                       # build graph from gaps + requirements
     python main.py graph-stats                                       # node/edge counts, top-cited policies, orphans
     python main.py graph-visualize                                   # heatmap + per-domain coverage chart
+
+    # Week 7 — Observability
+    python main.py history                                           # last assessment snapshots
+    python main.py history --compare                                 # delta vs previous run
+    python main.py audit-log --tail 50                               # tail of compliance audit log
 """
 
 from __future__ import annotations
@@ -144,6 +149,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gv.add_argument("--no-chart", action="store_true",
                       help="Skip the per-domain coverage bar chart.")
 
+    # Week 7 — observability
+    p_hist = sub.add_parser("history",
+                            help="Show recent compliance assessment snapshots.")
+    p_hist.add_argument("-n", type=int, default=10,
+                        help="How many recent snapshots to show.")
+    p_hist.add_argument("--compare", action="store_true",
+                        help="Print delta between the two most recent runs.")
+
+    p_log = sub.add_parser("audit-log",
+                           help="Show recent entries from the compliance audit log.")
+    p_log.add_argument("--tail", type=int, default=30,
+                       help="How many recent events to show.")
+
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable DEBUG-level logging.")
     return parser
@@ -239,6 +257,12 @@ def main(argv=None):
         if not args.no_chart:
             path = render_domain_coverage()
             print(f"Domain chart saved to: {path}")
+    elif args.command == "history":
+        from complianceiq.observability import print_history
+        print_history(n=args.n, compare=args.compare)
+    elif args.command == "audit-log":
+        from complianceiq.observability import print_audit_log
+        print_audit_log(tail=args.tail)
     else:
         parser.print_help()
         return 2

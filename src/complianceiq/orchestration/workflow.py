@@ -36,6 +36,9 @@ from complianceiq.models import (
     Gap,
     Requirement,
 )
+from complianceiq.observability import tracing
+from complianceiq.observability.audit import AuditLogger
+from complianceiq.observability.history import record_snapshot
 from complianceiq.orchestration.evidence import EvidenceCollector
 from complianceiq.orchestration.scoring import (
     build_remediation_plan,
@@ -69,10 +72,20 @@ class ComplianceWorkflow:
         evidence_top_k: int = 5,
     ) -> None:
         self.store = store or ChromaStore.load()
-        self.regulation_monitor = RegulationMonitorAgent(store=self.store)
-        self.gap_detector       = GapDetectorAgent(store=self.store, top_k=gap_top_k)
-        self.policy_analyzer    = PolicyAnalyzerAgent(store=self.store)
+        self.run_id = str(uuid.uuid4())
+        self.started_at = datetime.now(timezone.utc).isoformat()
+        self.audit = AuditLogger(run_id=self.run_id)
+
+        self.regulation_monitor = RegulationMonitorAgent(store=self.store, run_id=self.run_id)
+        self.gap_detector       = GapDetectorAgent(store=self.store, top_k=gap_top_k,
+                                                   run_id=self.run_id)
+        self.policy_analyzer    = PolicyAnalyzerAgent(store=self.store, run_id=self.run_id)
         self.evidence_collector = EvidenceCollector(store=self.store, top_k=evidence_top_k)
+
+        if tracing.is_enabled():
+            logger.info("Langfuse tracing enabled for run_id=%s", self.run_id)
+        else:
+            logger.info("Langfuse tracing disabled (no keys or auth failed).")
 
     # ── steps ─────────────────────────────────────────────────
     def _step_summaries(self, requirements: list[Requirement],
@@ -82,29 +95,54 @@ class ComplianceWorkflow:
             logger.info("Skipping regulation summaries (skip_summaries=True)")
             return 0
         print("\n[Step 1/5] Regulation Monitor — summarizing regulatory documents")
+        self.audit.log("regulation_monitor_started", actor="regulation_monitor")
         summaries = self.regulation_monitor.summarize_all(requirements, domain=domain)
         write_jsonl(SUMMARIES_FILE, summaries)
+        self.audit.log("regulation_monitor_completed", actor="regulation_monitor",
+                       payload={"summaries": len(summaries)})
         return len(summaries)
 
     def _step_gaps(self, requirements: list[Requirement],
                    domain: Domain | None = None,
                    limit: int | None = None) -> list[Gap]:
         print("\n[Step 2/5] Gap Detector — analyzing regulatory requirements vs policies")
+        self.audit.log("gap_detection_started", actor="gap_detector",
+                       payload={"requirements": len(requirements),
+                                "domain_filter": domain.value if domain else None,
+                                "limit": limit})
         gaps = self.gap_detector.detect_gaps(requirements, domain=domain, limit=limit)
         write_jsonl(GAPS_FILE, gaps)
+        for g in gaps:
+            self.audit.log("gap_detected", actor="gap_detector",
+                           entity_type="requirement", entity_id=g.requirement_id,
+                           payload={"coverage": g.coverage.value,
+                                    "severity": g.severity.value,
+                                    "domain": g.domain.value})
+        self.audit.log("gap_detection_completed", actor="gap_detector",
+                       payload={"gaps": len(gaps)})
         return gaps
 
     def _step_evidence(self, gaps: list[Gap]) -> int:
         print("\n[Step 3/5] Evidence Collector — bundling regulation + policy evidence")
+        self.audit.log("evidence_collection_started", actor="evidence_collector")
         packets = [self.evidence_collector.packet_from_gap(g) for g in gaps]
         write_jsonl(EVIDENCE_FILE, packets)
+        self.audit.log("evidence_collection_completed", actor="evidence_collector",
+                       payload={"packets": len(packets)})
         return len(packets)
 
     def _step_coverage(self, gaps: list[Gap]) -> int:
         print("\n[Step 4/5] Policy Analyzer — per-domain coverage rollup")
-        # Group already happens inside assess_all; we just pass gaps.
+        self.audit.log("coverage_assessment_started", actor="policy_analyzer")
         assessments = self.policy_analyzer.assess_all(gaps)
         write_jsonl(COVERAGE_FILE, assessments)
+        for a in assessments:
+            self.audit.log("coverage_assessed", actor="policy_analyzer",
+                           entity_type="domain", entity_id=a.domain.value,
+                           payload={"coverage_score": a.coverage_score,
+                                    "total_requirements": a.total_requirements})
+        self.audit.log("coverage_assessment_completed", actor="policy_analyzer",
+                       payload={"assessments": len(assessments)})
         return len(assessments)
 
     def _step_score(self, gaps: list[Gap]) -> ComplianceScore:
@@ -115,6 +153,16 @@ class ComplianceWorkflow:
             json.dump(score.model_dump(mode="json"), f, ensure_ascii=False, indent=2)
         plan = build_remediation_plan(gaps)
         write_jsonl(REMEDIATION_FILE, plan.items)
+
+        self.audit.log("score_computed", actor="scorer",
+                       payload={"overall_score": score.overall_score,
+                                "weighted_overall_score": score.weighted_overall_score,
+                                "high_priority_gaps": score.high_priority_gaps})
+        self.audit.log("remediation_planned", actor="remediation_planner",
+                       payload={"items": len(plan.items),
+                                "high": plan.high_priority_count,
+                                "medium": plan.medium_priority_count,
+                                "low": plan.low_priority_count})
 
         print_score(score)
         print_plan(plan, top_n=10)
@@ -138,11 +186,25 @@ class ComplianceWorkflow:
         if domain:
             print(f"Filtering to domain: {domain.value}")
 
+        self.audit.log("workflow_started", actor="workflow",
+                       payload={"requirements_loaded": len(requirements),
+                                "domain_filter": domain.value if domain else None,
+                                "limit": limit, "tracing": tracing.is_enabled()})
+
         n_summaries = self._step_summaries(requirements, domain=domain, skip_summaries=skip_summaries)
         gaps        = self._step_gaps(requirements, domain=domain, limit=limit)
         n_evidence  = self._step_evidence(gaps)
         n_coverage  = self._step_coverage(gaps)
         score       = self._step_score(gaps)
+
+        # Persist a longitudinal snapshot for trending across runs.
+        record_snapshot(score, run_id=self.run_id, started_at=self.started_at)
+        self.audit.log("workflow_completed", actor="workflow",
+                       payload={"weighted_overall_score": score.weighted_overall_score,
+                                "gaps": len(gaps)})
+
+        # Push any pending Langfuse traces before we return.
+        tracing.flush()
 
         result = WorkflowResult(
             requirements_count=len(requirements),
