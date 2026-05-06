@@ -38,6 +38,11 @@ Usage:
     python main.py history                                           # last assessment snapshots
     python main.py history --compare                                 # delta vs previous run
     python main.py audit-log --tail 50                               # tail of compliance audit log
+
+    # Week 8 — Production deployment
+    python main.py dashboard                                         # launch Gradio dashboard at :7860
+    python main.py report                                            # generate DOCX assessment report
+    python main.py smoke-test                                        # run pytest suite
 """
 
 from __future__ import annotations
@@ -162,6 +167,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--tail", type=int, default=30,
                        help="How many recent events to show.")
 
+    # Week 8 — production deployment
+    p_dash = sub.add_parser("dashboard",
+                            help="Launch the Gradio compliance dashboard.")
+    p_dash.add_argument("--port", type=int, default=7860,
+                        help="Port to bind (default 7860).")
+    p_dash.add_argument("--share", action="store_true",
+                        help="Create a public Gradio share link (NOT recommended for compliance data).")
+
+    sub.add_parser("report",
+                   help="Generate the audit-ready DOCX assessment report.")
+
+    sub.add_parser("smoke-test",
+                   help="Run the pytest test suite (deterministic checks, no LLM cost).")
+
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable DEBUG-level logging.")
     return parser
@@ -263,11 +282,30 @@ def main(argv=None):
     elif args.command == "audit-log":
         from complianceiq.observability import print_audit_log
         print_audit_log(tail=args.tail)
+    elif args.command == "dashboard":
+        from complianceiq.dashboard import launch
+        launch(server_port=args.port, share=args.share)
+    elif args.command == "report":
+        from complianceiq.reporting import generate_docx_report
+        generate_docx_report()
+    elif args.command == "smoke-test":
+        return _run_pytest()
     else:
         parser.print_help()
         return 2
 
     return 0
+
+
+def _run_pytest() -> int:
+    """Run the test suite via pytest and return its exit code."""
+    try:
+        import pytest
+    except ImportError:
+        print("pytest is not installed. Run: uv pip install pytest")
+        return 1
+    project_root = Path(__file__).resolve().parent
+    return pytest.main([str(project_root / "tests"), "-v"])
 
 
 def _run_search(query: str, collection: str, doc_type, domain, top_k: int) -> None:
