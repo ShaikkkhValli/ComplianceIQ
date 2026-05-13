@@ -26,13 +26,35 @@ class OpenAIEmbeddingFunction:
         self.model = model
 
     def __call__(self, input):
-        # Chroma calls this with input=list[str]; older versions used keyword 'texts'.
-        if not input:
-            return []
+        """Legacy callable interface. Chroma calls this with input=list[str]."""
+        return self._embed_batch(input)
 
+    # ── modern interface (Chroma 0.4.20+) ─────────────────────
+    def embed_documents(self, documents):
+        """Used during upsert. documents: list[str] -> list[list[float]]."""
+        return self._embed_batch(documents)
+
+    def embed_query(self, input):
+        """Used during query by Chroma 0.4.20+.
+
+        Chroma's Rust bindings expect this to ALWAYS return list[list[float]]
+        (one embedding per input query), even when input is a single string.
+        Returning a single embedding causes the Rust layer to iterate over
+        floats expecting sequences.
+        """
+        if isinstance(input, str):
+            return self._embed_batch([input])
+        if isinstance(input, list):
+            return self._embed_batch(input)
+        return self._embed_batch([str(input)])
+
+    # ── shared core ───────────────────────────────────────────
+    def _embed_batch(self, items):
+        if not items:
+            return []
         all_embeddings: list[list[float]] = []
-        for i in range(0, len(input), self.BATCH_SIZE):
-            batch = input[i:i + self.BATCH_SIZE]
+        for i in range(0, len(items), self.BATCH_SIZE):
+            batch = items[i:i + self.BATCH_SIZE]
             response = self.client.embeddings.create(input=batch, model=self.model)
             all_embeddings.extend(item.embedding for item in response.data)
         return all_embeddings

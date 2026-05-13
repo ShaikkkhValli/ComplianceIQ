@@ -14,3 +14,17 @@ logs
 archive
 
 generated_report/
+
+```bash
+    echo "data/chroma/chroma.sqlite3" >> .gitignore
+    git add .gitignore
+    git commit -m "Ignore large database file"
+    ```
+
+    **Push:**
+    
+```bash
+    git push origin main
+    ```
+
+data/chroma/chroma.sqlite3

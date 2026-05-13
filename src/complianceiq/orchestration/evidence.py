@@ -23,9 +23,20 @@ logger = logging.getLogger(__name__)
 class EvidenceCollector:
     """Bundles regulation + supporting policy evidence per requirement."""
 
-    def __init__(self, store: ChromaStore | None = None, top_k: int = 5) -> None:
+    def __init__(
+        self,
+        store: ChromaStore | None = None,
+        top_k: int = 5,
+        include_regulatory_context: bool = False,
+    ) -> None:
         self.store = store or ChromaStore.load()
         self.top_k = top_k
+        # Default OFF: each call adds an OpenAI embedding round-trip
+        # (~0.5s per gap × thousands of gaps = expensive and slow).
+        # gap.matching_policies already contains the top-5 policy excerpts;
+        # the additional regulatory-sibling context is nice-to-have audit detail
+        # but not required for the report or the dashboard.
+        self.include_regulatory_context = include_regulatory_context
 
     # ── helpers ───────────────────────────────────────────────
     @staticmethod
@@ -119,18 +130,23 @@ class EvidenceCollector:
             for m in gap.matching_policies
         ]
 
-        # Extra regulatory context (siblings / related clauses).
-        reg_hits = self.store.search_chunks(
-            f"{gap.regulation_text}\n{gap.mandatory_action}",
-            where={
-                "$and": [
-                    {"doc_type": {"$eq": "regulatory"}},
-                    {"domain": {"$eq": gap.domain.value}},
-                ]
-            },
-            top_k=3,
-        )
-        additional = [self._hit_to_item(h, "regulatory") for h in reg_hits]
+        additional = []
+        if self.include_regulatory_context:
+            try:
+                reg_hits = self.store.search_chunks(
+                    f"{gap.regulation_text}\n{gap.mandatory_action}",
+                    where={
+                        "$and": [
+                            {"doc_type": {"$eq": "regulatory"}},
+                            {"domain": {"$eq": gap.domain.value}},
+                        ]
+                    },
+                    top_k=3,
+                )
+                additional = [self._hit_to_item(h, "regulatory") for h in reg_hits]
+            except Exception as e:
+                logger.warning("Skipping reg-context for %s: %s",
+                               gap.requirement_id, e)
 
         return EvidencePacket(
             requirement_id=gap.requirement_id,

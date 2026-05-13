@@ -110,8 +110,13 @@ class ComplianceWorkflow:
                        payload={"requirements": len(requirements),
                                 "domain_filter": domain.value if domain else None,
                                 "limit": limit})
-        gaps = self.gap_detector.detect_gaps(requirements, domain=domain, limit=limit)
-        write_jsonl(GAPS_FILE, gaps)
+        # Gaps are written incrementally to GAPS_FILE by the agent itself
+        # so crashes don't lose progress. detect_gaps returns the full set
+        # currently on disk (incl. previously-resumed entries).
+        gaps = self.gap_detector.detect_gaps(
+            requirements, domain=domain, limit=limit,
+            output_file=GAPS_FILE, resume=True,
+        )
         for g in gaps:
             self.audit.log("gap_detected", actor="gap_detector",
                            entity_type="requirement", entity_id=g.requirement_id,
@@ -125,11 +130,26 @@ class ComplianceWorkflow:
     def _step_evidence(self, gaps: list[Gap]) -> int:
         print("\n[Step 3/5] Evidence Collector — bundling regulation + policy evidence")
         self.audit.log("evidence_collection_started", actor="evidence_collector")
-        packets = [self.evidence_collector.packet_from_gap(g) for g in gaps]
-        write_jsonl(EVIDENCE_FILE, packets)
+
+        # Write incrementally with progress logging — same pattern as Step 2.
+        # Without include_regulatory_context (default), this step is purely
+        # local (no embedding calls) and finishes in seconds.
+        EVIDENCE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        n = 0
+        with EVIDENCE_FILE.open("w", encoding="utf-8") as f:
+            for i, g in enumerate(gaps, start=1):
+                packet = self.evidence_collector.packet_from_gap(g)
+                f.write(json.dumps(packet.model_dump(mode="json"), ensure_ascii=False))
+                f.write("\n")
+                n += 1
+                if i % 250 == 0 or i == len(gaps):
+                    logger.info("Evidence: %d/%d packets written", i, len(gaps))
+                    f.flush()
+        logger.info("Wrote %s", EVIDENCE_FILE)
+
         self.audit.log("evidence_collection_completed", actor="evidence_collector",
-                       payload={"packets": len(packets)})
-        return len(packets)
+                       payload={"packets": n})
+        return n
 
     def _step_coverage(self, gaps: list[Gap]) -> int:
         print("\n[Step 4/5] Policy Analyzer — per-domain coverage rollup")

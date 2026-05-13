@@ -7,8 +7,10 @@ a structured GapAssessment. Results are stitched into Gap records.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
+from pathlib import Path
 from typing import Iterable
 
 from complianceiq.agents.base import BaseAgent, load_requirements, write_jsonl
@@ -179,22 +181,100 @@ class GapDetectorAgent(BaseAgent):
         requirements: Iterable[Requirement],
         domain: Domain | None = None,
         limit: int | None = None,
+        output_file: Path | None = GAPS_FILE,
+        resume: bool = True,
     ) -> list[Gap]:
-        """Run gap detection over many requirements (regulatory only)."""
+        """Run gap detection over regulatory requirements.
+
+        When `output_file` is set (default: GAPS_FILE), each Gap is appended
+        to disk immediately so a crash mid-run loses at most one Gap.
+
+        When `resume=True` (default) and `output_file` already contains gaps
+        from a previous run, those requirement_ids are skipped — so re-running
+        `orchestrate` after a crash picks up where it stopped.
+
+        To start fresh, delete `output_file` first.
+        """
         reqs = [r for r in requirements if r.doc_type == "regulatory"]
         if domain:
             reqs = [r for r in reqs if r.domain == domain]
 
+        # Load completed requirement_ids from prior partial run (if any).
+        done: set[str] = set()
+        if resume and output_file and output_file.exists():
+            for existing in _read_existing_gaps(output_file):
+                done.add(existing.requirement_id)
+            if done:
+                logger.info("Resume: skipping %d already-analyzed requirements (delete %s for fresh run)",
+                            len(done), output_file)
+
+        # Set up incremental writer.
+        out_fp = None
+        if output_file is not None:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            out_fp = output_file.open("a", encoding="utf-8")
+
         gaps: list[Gap] = []
-        for i, req in enumerate(reqs, start=1):
-            if limit and i > limit:
-                logger.info("Reached gap-detection limit of %d", limit)
-                break
-            gap = self.detect_gap(req)
-            logger.info("[%d/%d] %s — %s",
-                        i, len(reqs), req.source_file, gap.coverage.value)
-            gaps.append(gap)
+        processed = 0
+        failures = 0
+        try:
+            for i, req in enumerate(reqs, start=1):
+                if req.requirement_id in done:
+                    continue
+                processed += 1
+                if limit and processed > limit:
+                    logger.info("Reached gap-detection limit of %d", limit)
+                    break
+
+                # Per-iteration guard: a single network/API failure must not
+                # crash the whole batch. The failed requirement_id is NOT
+                # written, so a follow-up `orchestrate` will retry it.
+                try:
+                    gap = self.detect_gap(req)
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    failures += 1
+                    logger.warning("[%d/%d] %s — FAILED (will retry on resume): %s",
+                                   i, len(reqs), req.source_file, e)
+                    continue
+
+                logger.info("[%d/%d] %s — %s",
+                            i, len(reqs), req.source_file, gap.coverage.value)
+                gaps.append(gap)
+                if out_fp is not None:
+                    out_fp.write(json.dumps(gap.model_dump(mode="json"), ensure_ascii=False))
+                    out_fp.write("\n")
+                    out_fp.flush()
+        finally:
+            if out_fp is not None:
+                out_fp.close()
+            if failures:
+                logger.warning("Completed with %d failed requirement(s); "
+                               "re-run `orchestrate` to retry them.", failures)
+
+        # Return the combined set of all gaps now on disk so the workflow
+        # has the full collection (not just the ones produced in this run).
+        if output_file is not None and output_file.exists():
+            return _read_existing_gaps(output_file)
         return gaps
+
+
+# ── disk helpers ──────────────────────────────────────────────
+def _read_existing_gaps(path: Path) -> list[Gap]:
+    out: list[Gap] = []
+    if not path.exists():
+        return out
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(Gap.model_validate_json(line))
+            except Exception:
+                continue
+    return out
 
 
 # ── CLI helper ────────────────────────────────────────────────
