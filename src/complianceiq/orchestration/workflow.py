@@ -26,6 +26,8 @@ from complianceiq.config import (
     COVERAGE_FILE,
     EVIDENCE_FILE,
     GAPS_FILE,
+    HITL_REQUIRED_FILE,
+    HITL_SCORE_THRESHOLD,
     REMEDIATION_FILE,
     REQUIREMENTS_FILE,
     SCORE_FILE,
@@ -46,6 +48,7 @@ from complianceiq.orchestration.scoring import (
     print_plan,
     print_score,
 )
+from complianceiq.utils.cache import embed_cache_stats, llm_cache_stats
 from complianceiq.vectorstore.store import ChromaStore
 
 logger = logging.getLogger(__name__)
@@ -60,6 +63,9 @@ class WorkflowResult(BaseModel):
     overall_score: float
     weighted_overall_score: float
     output_files: dict[str, str]
+    hitl_required: bool = False
+    hitl_reason: str | None = None
+    cache_stats: dict[str, dict] = {}
 
 
 class ComplianceWorkflow:
@@ -165,14 +171,82 @@ class ComplianceWorkflow:
                        payload={"assessments": len(assessments)})
         return len(assessments)
 
-    def _step_score(self, gaps: list[Gap]) -> ComplianceScore:
+    def _hitl_gate(self, score: ComplianceScore, gaps: list[Gap], require_approval: bool) -> tuple[bool, str | None]:
+        """Decide whether the run requires human review before publication.
+
+        Triggers when:
+          - weighted_overall_score < HITL_SCORE_THRESHOLD, OR
+          - any Gap has needs_review=True (low-confidence on a high-stakes call).
+
+        When triggered, writes a hitl_required.json signal file with the
+        diagnostic context so an external workflow (Slack notifier, ticket
+        creator, dashboard banner) can route it to a human.
+        """
+        low_score = score.weighted_overall_score < HITL_SCORE_THRESHOLD
+        low_conf_gaps = [g for g in gaps if g.needs_review]
+        triggered = low_score or bool(low_conf_gaps)
+        if not triggered:
+            # Clear any stale signal from a prior run
+            try:
+                if HITL_REQUIRED_FILE.exists():
+                    HITL_REQUIRED_FILE.unlink()
+            except OSError:
+                pass
+            return False, None
+
+        reasons = []
+        if low_score:
+            reasons.append(
+                f"weighted_overall_score={score.weighted_overall_score:.3f} "
+                f"< HITL_SCORE_THRESHOLD={HITL_SCORE_THRESHOLD}"
+            )
+        if low_conf_gaps:
+            reasons.append(f"{len(low_conf_gaps)} low-confidence gap(s) flagged for review")
+        reason = "; ".join(reasons)
+
+        signal = {
+            "run_id": self.run_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "weighted_overall_score": score.weighted_overall_score,
+            "threshold": HITL_SCORE_THRESHOLD,
+            "low_confidence_gap_ids": [g.requirement_id for g in low_conf_gaps][:50],
+            "reason": reason,
+            "approval_required": require_approval,
+        }
+        HITL_REQUIRED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with HITL_REQUIRED_FILE.open("w", encoding="utf-8") as f:
+            json.dump(signal, f, ensure_ascii=False, indent=2)
+        self.audit.log("hitl_gate_triggered", actor="workflow",
+                       payload={"reason": reason, "approval_required": require_approval})
+        logger.warning("HITL gate triggered: %s — signal at %s", reason, HITL_REQUIRED_FILE)
+        return True, reason
+
+    def _step_score(self, gaps: list[Gap], require_approval: bool = False) -> tuple[ComplianceScore, bool, str | None]:
         print("\n[Step 5/5] Scorer + Remediation Planner — comprehensive compliance score")
         score = compute_compliance_score(gaps)
         SCORE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with SCORE_FILE.open("w", encoding="utf-8") as f:
             json.dump(score.model_dump(mode="json"), f, ensure_ascii=False, indent=2)
+
+        # HITL gate evaluated AFTER score is written but BEFORE remediation_plan
+        hitl, reason = self._hitl_gate(score, gaps, require_approval=require_approval)
+        if hitl and require_approval:
+            print(f"\n*** HITL gate triggered: {reason}")
+            print(f"*** Signal written to {HITL_REQUIRED_FILE}")
+            print("*** Remediation plan publication paused. "
+                  "Re-run with --approve to publish, or fix the gaps and rerun.")
+            self.audit.log("remediation_publication_paused", actor="workflow",
+                           payload={"reason": reason})
+            print_score(score)
+            return score, hitl, reason
+
         plan = build_remediation_plan(gaps)
         write_jsonl(REMEDIATION_FILE, plan.items)
+
+        # Tag Langfuse trace with the deterministic compliance score so prompt
+        # versions can be A/B-compared in the Langfuse dashboard.
+        tracing.score_run(self.run_id, "compliance_score", score.weighted_overall_score)
+        tracing.score_run(self.run_id, "high_priority_gaps", float(score.high_priority_gaps))
 
         self.audit.log("score_computed", actor="scorer",
                        payload={"overall_score": score.overall_score,
@@ -186,7 +260,7 @@ class ComplianceWorkflow:
 
         print_score(score)
         print_plan(plan, top_n=10)
-        return score
+        return score, hitl, reason
 
     # ── full pipeline ─────────────────────────────────────────
     def run(
@@ -194,6 +268,7 @@ class ComplianceWorkflow:
         domain: Domain | None = None,
         limit: int | None = None,
         skip_summaries: bool = False,
+        require_approval: bool = False,
     ) -> WorkflowResult:
         if not Path(REQUIREMENTS_FILE).exists():
             raise FileNotFoundError(
@@ -215,13 +290,20 @@ class ComplianceWorkflow:
         gaps        = self._step_gaps(requirements, domain=domain, limit=limit)
         n_evidence  = self._step_evidence(gaps)
         n_coverage  = self._step_coverage(gaps)
-        score       = self._step_score(gaps)
+        score, hitl_required, hitl_reason = self._step_score(gaps, require_approval=require_approval)
 
         # Persist a longitudinal snapshot for trending across runs.
         record_snapshot(score, run_id=self.run_id, started_at=self.started_at)
+
+        cache_stats = {
+            "embedding": embed_cache_stats(),
+            "llm":       llm_cache_stats(),
+        }
+        self.audit.log("cache_stats", actor="workflow", payload=cache_stats)
         self.audit.log("workflow_completed", actor="workflow",
                        payload={"weighted_overall_score": score.weighted_overall_score,
-                                "gaps": len(gaps)})
+                                "gaps": len(gaps),
+                                "hitl_required": hitl_required})
 
         # Push any pending Langfuse traces before we return.
         tracing.flush()
@@ -242,6 +324,9 @@ class ComplianceWorkflow:
                 "score":      str(SCORE_FILE),
                 "remediation": str(REMEDIATION_FILE),
             },
+            hitl_required=hitl_required,
+            hitl_reason=hitl_reason,
+            cache_stats=cache_stats,
         )
 
         print("\n" + "=" * 60)
@@ -266,9 +351,11 @@ def run_workflow(
     limit: int | None = None,
     skip_summaries: bool = False,
     gap_top_k: int = 5,
+    require_approval: bool = False,
 ) -> WorkflowResult:
     wf = ComplianceWorkflow(gap_top_k=gap_top_k)
-    return wf.run(domain=domain, limit=limit, skip_summaries=skip_summaries)
+    return wf.run(domain=domain, limit=limit, skip_summaries=skip_summaries,
+                  require_approval=require_approval)
 
 
 def run_score_only() -> ComplianceScore:

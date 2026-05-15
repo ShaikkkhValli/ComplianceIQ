@@ -20,7 +20,12 @@ from typing import Any
 import gradio as gr
 import pandas as pd
 
-from complianceiq.config import REPORT_DOCX_FILE
+from complianceiq.config import (
+    HITL_REQUIRED_FILE,
+    POLICIES_DIR,
+    REGULATORY_DIR,
+    REPORT_DOCX_FILE,
+)
 from complianceiq.reporting import (
     generate_docx_report,
     load_coverage,
@@ -179,6 +184,63 @@ def _generate_report() -> str:
     return f"Report generated: {path}"
 
 
+# ── upload helpers (Upload tab) ───────────────────────────────
+def _save_policy(file_obj: Any) -> str:
+    if file_obj is None:
+        return "No file selected."
+    src = getattr(file_obj, "name", file_obj)
+    from pathlib import Path
+    import shutil
+    src_path = Path(src)
+    if src_path.suffix.lower() != ".docx":
+        return "❌ Policies must be .docx files."
+    POLICIES_DIR.mkdir(parents=True, exist_ok=True)
+    target = POLICIES_DIR / src_path.name
+    shutil.copy2(src_path, target)
+    return (f"✅ Saved to `{target}`. "
+            f"Run `python main.py ingest --extract && python main.py index && python main.py orchestrate` "
+            f"to incorporate it.")
+
+
+def _save_regulation(file_obj: Any, regulator: str) -> str:
+    if file_obj is None:
+        return "No file selected."
+    src = getattr(file_obj, "name", file_obj)
+    from pathlib import Path
+    import shutil
+    src_path = Path(src)
+    if src_path.suffix.lower() != ".pdf":
+        return "❌ Regulations must be .pdf files."
+    target_dir = REGULATORY_DIR / (regulator or "other").lower()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / src_path.name
+    shutil.copy2(src_path, target)
+    return (f"✅ Saved to `{target}`. "
+            f"Run `python main.py ingest --extract && python main.py index && python main.py orchestrate` "
+            f"to incorporate it.")
+
+
+def _hitl_status() -> str:
+    if not HITL_REQUIRED_FILE.exists():
+        return "✅ No HITL review required for the latest run."
+    try:
+        import json
+        payload = json.loads(HITL_REQUIRED_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        return f"⚠️ HITL signal present but unreadable: {e}"
+    reason = payload.get("reason", "(no reason recorded)")
+    score  = payload.get("weighted_overall_score", "?")
+    flagged = len(payload.get("low_confidence_gap_ids", []))
+    return (
+        f"### ⚠️ HITL review required\n\n"
+        f"- **Reason:** {reason}\n"
+        f"- **Weighted score:** {score}\n"
+        f"- **Low-confidence gaps flagged:** {flagged}\n"
+        f"- **Run ID:** `{payload.get('run_id', '?')}`\n"
+        f"- **Signal file:** `{HITL_REQUIRED_FILE}`"
+    )
+
+
 # ── domain options ────────────────────────────────────────────
 def _domain_choices() -> list[str]:
     score = load_score()
@@ -231,6 +293,9 @@ def build_app() -> gr.Blocks:
         # Coverage
         with gr.Tab("Coverage"):
             gr.Markdown("Per-domain coverage assessments produced by the Policy Analyzer.")
+        # Coverage
+        with gr.Tab("Coverage"):
+            gr.Markdown("Per-domain coverage assessments produced by the Policy Analyzer.")
             cov_table = gr.Dataframe(label="Coverage by domain")
             refresh_cov = gr.Button("Refresh", variant="primary")
             refresh_cov.click(_coverage_dataframe, outputs=cov_table)
@@ -248,9 +313,10 @@ def build_app() -> gr.Blocks:
         with gr.Tab("Search"):
             gr.Markdown(
                 "Semantic search against ChromaDB. **Note**: triggers an OpenAI "
-                "embedding call per query (≈ $0.0001).")
+                "embedding call per query.")
             with gr.Row():
-                query_in = gr.Textbox(label="Query", placeholder="e.g. 'incident reporting within 24 hours'",
+                query_in = gr.Textbox(label="Query",
+                                      placeholder="e.g. 'incident reporting within 24 hours'",
                                       scale=4)
                 top_k_in = gr.Slider(1, 20, value=5, step=1, label="Top-K", scale=1)
             with gr.Row():
@@ -266,12 +332,46 @@ def build_app() -> gr.Blocks:
 
         # Reports
         with gr.Tab("Reports"):
-            gr.Markdown("Generate the audit-ready DOCX assessment report from the latest "
-                        "JSONL artifacts.")
+            gr.Markdown("Generate the audit-ready DOCX assessment report.")
             gen_btn = gr.Button("Generate DOCX report", variant="primary")
             status = gr.Markdown()
             gen_btn.click(_generate_report, outputs=status)
             gr.Markdown(f"Report path: `{REPORT_DOCX_FILE}`")
+
+        # Upload — file upload + HITL queue (rubric §13)
+        with gr.Tab("Upload"):
+            gr.Markdown(
+                "## Add a new policy or regulation\n"
+                "Drop a file below to add it to the corpus. "
+                "Policies become `data/policies/<filename>.docx`; "
+                "regulations become `data/regulatory/<regulator>/<filename>.pdf`. "
+                "Run the orchestration afterwards (Reports tab → Generate, or "
+                "`python main.py orchestrate`) to incorporate the new document."
+            )
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### Policy (.docx)")
+                    pol_file = gr.File(label="Upload policy DOCX", file_types=[".docx"])
+                    pol_btn  = gr.Button("Save policy", variant="primary")
+                    pol_status = gr.Markdown()
+                    pol_btn.click(_save_policy, inputs=pol_file, outputs=pol_status)
+                with gr.Column():
+                    gr.Markdown("### Regulation (.pdf)")
+                    reg_file = gr.File(label="Upload regulatory PDF", file_types=[".pdf"])
+                    regulator_dd = gr.Dropdown(
+                        choices=["irdai", "mas", "rbi", "sebi", "fca", "sec", "other"],
+                        value="irdai", label="Regulator",
+                    )
+                    reg_btn  = gr.Button("Save regulation", variant="primary")
+                    reg_status = gr.Markdown()
+                    reg_btn.click(_save_regulation,
+                                  inputs=[reg_file, regulator_dd], outputs=reg_status)
+            gr.Markdown("---")
+            gr.Markdown("### HITL queue")
+            hitl_view = gr.Markdown()
+            refresh_hitl = gr.Button("Refresh HITL status")
+            refresh_hitl.click(_hitl_status, outputs=hitl_view)
+            app.load(_hitl_status, outputs=hitl_view)
 
     return app
 

@@ -133,6 +133,11 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Top-K policy excerpts retrieved per regulation.")
     p_orch.add_argument("--skip-summaries", action="store_true",
                         help="Skip the Regulation Monitor digest step.")
+    p_orch.add_argument("--concurrency", type=int, default=None,
+                        help="Parallel Gap Detector workers (default GAP_CONCURRENCY=8). "
+                             "Set to 1 to force sequential.")
+    p_orch.add_argument("--require-approval", action="store_true",
+                        help="Pause before publishing remediation_plan when the HITL gate trips.")
 
     p_score = sub.add_parser("score",
                              help="Compute compliance score from gaps.jsonl (no LLM).")
@@ -180,6 +185,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("smoke-test",
                    help="Run the pytest test suite (deterministic checks, no LLM cost).")
+
+    p_eval = sub.add_parser("eval",
+                            help="Run the golden-pair recall test against the live agents.")
+    p_eval.add_argument("--update-baseline", action="store_true",
+                        help="Print a fresh baseline JSON for golden_gaps.jsonl review.")
+
+    p_api = sub.add_parser("api",
+                           help="Launch the FastAPI HTTP server (uvicorn).")
+    p_api.add_argument("--host", default="0.0.0.0", help="Bind host (default 0.0.0.0).")
+    p_api.add_argument("--port", type=int, default=8000, help="Bind port (default 8000).")
+    p_api.add_argument("--reload", action="store_true",
+                       help="Enable hot-reload (development only).")
 
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable DEBUG-level logging.")
@@ -237,11 +254,18 @@ def main(argv=None):
     elif args.command == "orchestrate":
         from complianceiq.orchestration import run_workflow
         from complianceiq.models import Domain
+        # Honor --concurrency by overriding the env-driven default before workflow init.
+        if args.concurrency is not None:
+            os.environ["GAP_CONCURRENCY"] = str(args.concurrency)
+            # Force the config module to pick up the new value
+            import importlib, complianceiq.config as _cfg
+            importlib.reload(_cfg)
         run_workflow(
             domain=Domain(args.domain) if args.domain else None,
             limit=args.limit,
             skip_summaries=args.skip_summaries,
             gap_top_k=args.top_k,
+            require_approval=args.require_approval,
         )
     elif args.command == "score":
         from complianceiq.orchestration import run_score_only
@@ -290,6 +314,10 @@ def main(argv=None):
         generate_docx_report()
     elif args.command == "smoke-test":
         return _run_pytest()
+    elif args.command == "eval":
+        return _run_eval()
+    elif args.command == "api":
+        _run_api(host=args.host, port=args.port, reload=args.reload)
     else:
         parser.print_help()
         return 2
@@ -306,6 +334,29 @@ def _run_pytest() -> int:
         return 1
     project_root = Path(__file__).resolve().parent
     return pytest.main([str(project_root / "tests"), "-v"])
+
+
+def _run_eval() -> int:
+    """Run only the golden-pair recall test (rubric §11)."""
+    try:
+        import pytest
+    except ImportError:
+        print("pytest is not installed. Run: uv pip install pytest")
+        return 1
+    project_root = Path(__file__).resolve().parent
+    return pytest.main([str(project_root / "tests" / "eval"), "-v"])
+
+
+def _run_api(host: str, port: int, reload: bool) -> None:
+    """Launch the FastAPI app via uvicorn."""
+    try:
+        import uvicorn
+    except ImportError:
+        print("uvicorn is not installed. Run: pip install 'fastapi[standard]' uvicorn")
+        return
+    print(f"\nLaunching ComplianceIQ API on http://{host}:{port}\n"
+          f"Docs available at http://{host}:{port}/docs\n")
+    uvicorn.run("complianceiq.api.app:app", host=host, port=port, reload=reload)
 
 
 def _run_search(query: str, collection: str, doc_type, domain, top_k: int) -> None:

@@ -17,6 +17,8 @@ from langchain_openai import ChatOpenAI
 from complianceiq.config import LLM_MODEL, LLM_TEMPERATURE, require_openai_key
 from complianceiq.models import Requirement
 from complianceiq.observability import tracing
+from complianceiq.utils.cache import cached_llm_call
+from complianceiq.utils.retry import with_retries
 from complianceiq.vectorstore.store import ChromaStore
 
 logger = logging.getLogger(__name__)
@@ -78,26 +80,31 @@ class BaseAgent:
         user_template: str,
         schema,
         agent_name: str | None = None,
+        model: str | None = None,
     ):
         """Build a `prompt | llm.with_structured_output(schema)` chain.
 
-        If Langfuse tracing is enabled, the chain is pre-configured with the
-        callback handler and metadata via `.with_config(...)` so every
-        `chain.invoke()` is automatically traced. agent_name is used as a
-        Langfuse tag and as the trace_name.
+        If `model` is provided it overrides the agent's default model for this
+        single chain — used by tier-up routing in the Gap Detector.
+
+        Tracing: when Langfuse is enabled, the chain is pre-configured with the
+        callback handler and metadata so every `chain.invoke()` is traced.
         """
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             ("user", user_template),
         ])
-        chain = prompt | self.llm.with_structured_output(schema)
+        llm = self.llm if model is None or model == self.model_name else ChatOpenAI(
+            model=model, temperature=LLM_TEMPERATURE,
+        )
+        chain = prompt | llm.with_structured_output(schema)
 
         handler = tracing.get_handler()
         config: dict = {}
         if handler is not None:
             config["callbacks"] = [handler]
         tags = ["compliance"]
-        metadata: dict = {"model": self.model_name}
+        metadata: dict = {"model": model or self.model_name}
         if agent_name:
             tags.append(agent_name)
             metadata["agent"] = agent_name
@@ -108,3 +115,40 @@ class BaseAgent:
         config["metadata"] = metadata
 
         return chain.with_config(config)
+
+    def invoke_with_resilience(
+        self,
+        chain,
+        input_payload: dict,
+        *,
+        agent_name: str,
+        diagnostic: dict | None = None,
+        cacheable: bool = True,
+    ):
+        """Invoke an LCEL chain with retries + optional response caching.
+
+        Caching keys on (model, prompt-text, schema-name); duplicate
+        requirement chunks within the same run hit the cache instead of
+        the LLM.
+        """
+        diag = {"agent": agent_name, **(diagnostic or {})}
+
+        @with_retries(diagnostic=diag)
+        def _invoke():
+            return chain.invoke(input_payload)
+
+        if not cacheable:
+            return _invoke()
+
+        # Render the prompt deterministically for the cache key
+        prompt_text = json.dumps(input_payload, sort_keys=True, default=str)
+        schema_name = (
+            chain.last.steps[-1].__class__.__name__
+            if hasattr(chain, "last") else type(chain).__name__
+        )
+        return cached_llm_call(
+            model=self.model_name,
+            prompt=prompt_text,
+            schema=schema_name,
+            invoke=_invoke,
+        )

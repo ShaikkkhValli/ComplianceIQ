@@ -4,9 +4,10 @@ Centralized so every agent shares the same callback handler and so the rest
 of the system degrades gracefully when Langfuse keys are missing or auth fails.
 
 Public API:
-    is_enabled()      -> bool
-    get_handler()     -> CallbackHandler | None
-    flush()           -> None
+    is_enabled()                 -> bool
+    get_handler()                -> CallbackHandler | None
+    flush()                      -> None
+    score_run(run_id, name, val) -> None  (rubric §10: custom quality scores)
 """
 
 from __future__ import annotations
@@ -45,6 +46,27 @@ def flush() -> None:
             _langfuse_client.flush()
         except Exception as e:
             logger.warning("Langfuse flush failed: %s", e)
+
+
+def score_run(run_id: str, name: str, value: float, comment: str | None = None) -> None:
+    """Attach a custom quality score to the Langfuse trace for ``run_id``.
+
+    Used by the workflow to attach the deterministic compliance_score to
+    every run so prompt versions can be A/B compared in the Langfuse dashboard.
+    Safe to call when tracing is disabled (becomes a no-op).
+    """
+    _ensure_initialized()
+    if not _enabled or _langfuse_client is None:
+        return
+    try:
+        _langfuse_client.score(
+            trace_id=run_id,
+            name=name,
+            value=float(value),
+            comment=comment,
+        )
+    except Exception as e:
+        logger.debug("Langfuse score() call failed (non-fatal): %s", e)
 
 
 # ── internals ────────────────────────────────────────────────

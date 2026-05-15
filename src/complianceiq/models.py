@@ -33,13 +33,34 @@ class Severity(str, Enum):
 
 
 class CoverageQuality(str, Enum):
-    """How well a policy covers a regulatory requirement."""
     FULLY_COVERED     = "fully_covered"
     PARTIALLY_COVERED = "partially_covered"
     NOT_COVERED       = "not_covered"
 
 
 DocType = Literal["regulatory", "policy"]
+
+
+# ── Citations / clause references (rubric §5: domain extraction) ──
+class ClauseRef(BaseModel):
+    """Structured citation parsed from a regulatory clause string.
+
+    Examples:
+        "Regulation 4(2)(a)" -> ClauseRef(article="4", sub_clauses=["2","a"])
+        "Section 12.3.1"     -> ClauseRef(article="12", sub_clauses=["3","1"])
+    """
+    raw: str = Field(..., description="The original citation string.")
+    article: str | None = Field(None, description="Top-level numeric clause id.")
+    sub_clauses: list[str] = Field(
+        default_factory=list,
+        description="Nested sub-clause path, e.g. ['2','a'] for '4(2)(a)'.",
+    )
+    page: int | None = None
+
+    def canonical(self) -> str:
+        if not self.article:
+            return self.raw.strip().lower()
+        return ".".join([self.article] + list(self.sub_clauses)).lower()
 
 
 # ── Source documents ──────────────────────────────────────────
@@ -54,8 +75,6 @@ class DocumentMetadata(BaseModel):
 
 
 class Document(BaseModel):
-    """A logical text block extracted from a source file (page, paragraph, or table)."""
-
     text: str
     metadata: DocumentMetadata
 
@@ -72,48 +91,28 @@ class Chunk(BaseModel):
 
 # ── Requirements (LLM extraction output) ──────────────────────
 class RawRequirement(BaseModel):
-    """Semantic fields extracted by the LLM from a single chunk."""
-
-    requirement_text: str = Field(
-        ..., description="The verbatim regulatory clause or policy statement."
-    )
+    requirement_text: str = Field(..., description="The verbatim regulatory clause.")
     mandatory_action: str = Field(
-        ...,
-        description=(
-            "What the organization must do, in one sentence. "
-            "Use 'N/A' if the chunk only describes context, not an obligation."
-        ),
+        ..., description="What the org must do, in one sentence. Use 'N/A' for context only.",
     )
     evidence_needed: list[str] = Field(
         default_factory=list,
-        description=(
-            "Documentation, logs, or artifacts that would prove compliance. "
-            "Empty list if no evidence is implied."
-        ),
+        description="Documentation/logs that would prove compliance.",
     )
     severity: Severity = Field(
         ...,
-        description=(
-            "high = breach causes regulatory penalty/material harm; "
-            "medium = non-compliance creates audit findings; "
-            "low = best-practice or advisory."
-        ),
+        description="high = penalty/material harm; medium = audit findings; low = advisory.",
     )
     suggested_domain: Domain | None = Field(
-        default=None,
-        description="Optional refinement of the domain if the chunk fits one better.",
+        default=None, description="Optional refinement of the domain.",
     )
 
 
 class RequirementBatch(BaseModel):
-    """Wrapper used as the LLM structured-output schema (a chunk may contain 0+ requirements)."""
-
     requirements: list[RawRequirement] = Field(default_factory=list)
 
 
 class Requirement(BaseModel):
-    """Full enriched requirement record persisted to disk."""
-
     requirement_id: str
     source_file: str
     page_or_section: str
@@ -126,21 +125,13 @@ class Requirement(BaseModel):
     extracted_by: str
 
     @classmethod
-    def from_raw(
-        cls,
-        raw: RawRequirement,
-        chunk_meta: ChunkMetadata,
-        extracted_by: str,
-    ) -> "Requirement":
+    def from_raw(cls, raw, chunk_meta, extracted_by):
         page_or_section = (
-            f"page {chunk_meta.page_number}"
-            if chunk_meta.page_number is not None
+            f"page {chunk_meta.page_number}" if chunk_meta.page_number is not None
             else (chunk_meta.section or "")
         )
-        # Stable ID: hash of source + clause text (so re-runs are idempotent).
         rid_input = f"{chunk_meta.file_name}|{page_or_section}|{raw.requirement_text}"
         requirement_id = hashlib.sha1(rid_input.encode("utf-8")).hexdigest()[:16]
-
         return cls(
             requirement_id=requirement_id,
             source_file=chunk_meta.file_name,
@@ -155,32 +146,31 @@ class Requirement(BaseModel):
         )
 
 
-# ── Agent outputs (Week 4) ────────────────────────────────────
+# ── Agent outputs ─────────────────────────────────────────────
 class PolicyMatch(BaseModel):
-    """A policy excerpt that the Gap Detector considered as evidence."""
     policy_file: str
-    location: str           # page or section
-    excerpt: str            # truncated chunk text
-    distance: float         # cosine distance from the regulation; lower = closer
+    location: str
+    excerpt: str
+    distance: float
 
 
 class GapAssessment(BaseModel):
-    """LLM-produced judgment for a single regulation vs its candidate policies.
-
-    This is the Pydantic schema used as the structured-output target by the
-    Gap Detector chain.
-    """
+    """LLM output schema for a single regulation vs candidate policies."""
     coverage: CoverageQuality
-    gap_description: str = Field(
-        ..., description="What is missing or weak. Empty if fully covered."
-    )
-    severity: Severity = Field(
-        ..., description="Severity of the gap if any (use the regulation's severity if covered)."
-    )
+    gap_description: str = Field(..., description="What is missing or weak. Empty if fully covered.")
+    severity: Severity = Field(..., description="Severity of the gap if any.")
     remediation_priority: Severity
     remediation_steps: list[str] = Field(
         default_factory=list,
-        description="Concrete actions to close the gap. Empty if fully covered.",
+        description="Concrete actions to close the gap.",
+    )
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0,
+        description=(
+            "Self-assessed confidence in this coverage decision (0..1). "
+            "0.9+ = excerpts directly address the requirement; "
+            "0.5 = excerpts tangential; <0.4 = no clear evidence."
+        ),
     )
 
 
@@ -199,10 +189,21 @@ class Gap(BaseModel):
     remediation_steps: list[str]
     evidence_needed: list[str]
     analyzed_by: str
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0,
+        description="Confidence in the coverage decision (propagated from GapAssessment).",
+    )
+    needs_review: bool = Field(
+        default=False,
+        description="True when confidence is below the HITL threshold.",
+    )
+    clause_ref: ClauseRef | None = Field(
+        default=None,
+        description="Structured citation parsed from the regulation_source / regulation_text.",
+    )
 
 
 class CoverageAssessment(BaseModel):
-    """Domain-level coverage roll-up produced by the Policy Analyzer."""
     domain: Domain
     total_requirements: int
     fully_covered: int
@@ -212,10 +213,13 @@ class CoverageAssessment(BaseModel):
     strongest_areas: list[str] = Field(default_factory=list)
     weakest_areas: list[str] = Field(default_factory=list)
     summary: str
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0,
+        description="Confidence in the domain-level summary (0..1).",
+    )
 
 
 class RegulationSummary(BaseModel):
-    """High-level digest of a regulatory file produced by the Regulation Monitor."""
     source_file: str
     domain: Domain
     total_requirements: int
@@ -226,18 +230,16 @@ class RegulationSummary(BaseModel):
     summary: str
 
 
-# ── Week 5: Evidence & scoring ────────────────────────────────
+# ── Evidence & scoring ────────────────────────────────────────
 class EvidenceItem(BaseModel):
-    """A single chunk of supporting evidence for a requirement."""
     source_file: str
     location: str
     text: str
     doc_type: DocType
-    distance: float | None = None  # populated when retrieved via vector search
+    distance: float | None = None
 
 
 class EvidencePacket(BaseModel):
-    """All evidence collected for a single regulatory requirement."""
     requirement_id: str
     regulation: EvidenceItem
     policy_evidence: list[EvidenceItem] = Field(default_factory=list)
@@ -259,7 +261,6 @@ class DomainScore(BaseModel):
 
 
 class ComplianceScore(BaseModel):
-    """Org-wide compliance score with per-domain breakdown."""
     overall_score: float
     weighted_overall_score: float
     total_requirements: int
@@ -272,7 +273,6 @@ class ComplianceScore(BaseModel):
 
 
 class RemediationItem(BaseModel):
-    """One actionable remediation entry, prioritized."""
     requirement_id: str
     domain: Domain
     severity: Severity
@@ -287,28 +287,25 @@ class RemediationItem(BaseModel):
 
 
 class RemediationPlan(BaseModel):
-    """Prioritized list of remediation items."""
     items: list[RemediationItem]
     high_priority_count: int
     medium_priority_count: int
     low_priority_count: int
 
 
-# ── Week 7: Observability ─────────────────────────────────────
+# ── Observability ─────────────────────────────────────────────
 class AuditEvent(BaseModel):
-    """A single immutable entry in the compliance audit log."""
     event_id: str
-    timestamp: str            # ISO 8601 UTC
-    run_id: str               # workflow run that emitted this event
-    event_type: str           # e.g. gap_detected, score_computed, requirements_extracted
-    actor: str                # agent name + model, or "system"
-    entity_type: str | None = None   # "requirement", "domain", "file", ...
+    timestamp: str
+    run_id: str
+    event_type: str
+    actor: str
+    entity_type: str | None = None
     entity_id: str | None = None
     payload: dict = Field(default_factory=dict)
 
 
 class AssessmentSnapshot(BaseModel):
-    """Point-in-time snapshot of one full compliance assessment."""
     run_id: str
     started_at: str
     finished_at: str

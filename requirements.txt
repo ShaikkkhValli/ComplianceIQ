@@ -13,3 +13,6 @@ pdfplumber
 python-docx
 litellm
 pydantic>=2.0
+fastapi
+uvicorn
+python-multipart
