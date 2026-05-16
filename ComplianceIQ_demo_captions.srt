@@ -1,0 +1,223 @@
+1
+00:00:00,000 --> 00:00:09,000
+Hi - this is the ComplianceIQ capstone demo.
+
+2
+00:00:09,000 --> 00:00:18,000
+ComplianceIQ is an AI-driven multi-agent regulatory compliance system.
+
+3
+00:00:18,000 --> 00:00:27,000
+It reads internal policies, compares them against IRDAI / MAS regulations,
+
+4
+00:00:27,000 --> 00:00:36,000
+identifies compliance gaps, scores them by severity, and produces an audit-ready DOCX report.
+
+5
+00:00:36,000 --> 00:00:45,000
+End to end in under 30 minutes for less than $0.10 in OpenAI usage.
+
+6
+00:00:45,000 --> 00:00:55,000
+The problem: compliance teams spend weeks each quarter cross-referencing policies.
+
+7
+00:00:55,000 --> 00:01:05,000
+Multi-jurisdiction complexity - IRDAI and MAS update constantly.
+
+8
+00:01:05,000 --> 00:01:15,000
+Mapping is manual - tens of thousands of clause connections done by hand.
+
+9
+00:01:15,000 --> 00:01:25,000
+Gaps surface during the audit, not before.
+
+10
+00:01:25,000 --> 00:01:35,000
+Documentation burden - evidence binders rebuilt every cycle.
+
+11
+00:01:35,000 --> 00:01:45,000
+ComplianceIQ replaces all of this with an observable, reproducible AI pipeline.
+
+12
+00:01:45,000 --> 00:01:53,571
+Architecture - five logical layers.
+
+13
+00:01:53,571 --> 00:02:02,143
+L1 Ingestion: PDFs/DOCX in, classified chunks out.
+
+14
+00:02:02,143 --> 00:02:10,714
+L2 Vector store: ChromaDB + OpenAI embeddings.
+
+15
+00:02:10,714 --> 00:02:19,286
+L3 Agents: Regulation Monitor, Gap Detector, Policy Analyzer.
+
+16
+00:02:19,286 --> 00:02:27,857
+L4 Orchestration: workflow + scoring + evidence + remediation.
+
+17
+00:02:27,857 --> 00:02:36,429
+L5 Interfaces: knowledge graph, DOCX, Gradio dashboard, FastAPI.
+
+18
+00:02:36,429 --> 00:02:45,000
+Cross-cutting Langfuse observability + immutable audit log on every run.
+
+19
+00:02:45,000 --> 00:02:56,250
+12-stage data flow with JSONL contracts at every stage.
+
+20
+00:02:56,250 --> 00:03:07,500
+Each stage is independently runnable and re-runnable.
+
+21
+00:03:07,500 --> 00:03:18,750
+Re-runs are idempotent - Chroma uses deterministic IDs.
+
+22
+00:03:18,750 --> 00:03:30,000
+Every LLM-bearing stage is traced in Langfuse.
+
+23
+00:03:30,000 --> 00:03:42,000
+Three specialized agents - single-responsibility, LCEL, Pydantic-typed.
+
+24
+00:03:42,000 --> 00:03:54,000
+Regulation Monitor: extracts mandatory actions and evidence needs per file.
+
+25
+00:03:54,000 --> 00:04:06,000
+Gap Detector: top-5 RAG over policy chunks; LLM judges coverage + confidence.
+
+26
+00:04:06,000 --> 00:04:18,000
+Policy Analyzer: aggregates gaps per Domain into weighted CoverageAssessment.
+
+27
+00:04:18,000 --> 00:04:30,000
+Every agent: prompt | llm.with_structured_output(schema). Schema violations fail fast.
+
+28
+00:04:30,000 --> 00:04:51,000
+LIVE DEMO segment.
+
+29
+00:04:51,000 --> 00:05:12,000
+TERMINAL: python main.py orchestrate --concurrency 8 --limit 5
+
+30
+00:05:12,000 --> 00:05:33,000
+(Watch the Regulation Monitor, then Gap Detector running in parallel.)
+
+31
+00:05:33,000 --> 00:05:54,000
+Each gap is appended to gaps.jsonl in real time.
+
+32
+00:05:54,000 --> 00:06:15,000
+When done: type data\processed\compliance_score.json | more
+
+33
+00:06:15,000 --> 00:06:36,000
+The score is pure-Python deterministic - severity weights {3,2,1} x coverage {1.0, 0.5, 0.0}.
+
+34
+00:06:36,000 --> 00:06:57,000
+Auditors can recompute by hand. Same gaps in => same score out.
+
+35
+00:06:57,000 --> 00:07:18,000
+Now: python main.py dashboard => http://localhost:7860
+
+36
+00:07:18,000 --> 00:07:39,000
+Click through Overview -> Gaps -> Coverage -> Remediation -> Search -> Reports.
+
+37
+00:07:39,000 --> 00:08:00,000
+Then the Upload tab: file picker + HITL queue panel.
+
+38
+00:08:00,000 --> 00:08:12,857
+Key technical decisions.
+
+39
+00:08:12,857 --> 00:08:25,714
+LCEL + Pydantic: schema violations fail at the agent boundary.
+
+40
+00:08:25,714 --> 00:08:38,571
+Deterministic Python scoring - no LLM in the headline metric.
+
+41
+00:08:38,571 --> 00:08:51,429
+JSONL contracts per stage - jq, pandas, Excel all 'just work'.
+
+42
+00:08:51,429 --> 00:09:04,286
+Fail-open Langfuse - pipeline reliability decoupled from observability uptime.
+
+43
+00:09:04,286 --> 00:09:17,143
+Tier-up routing - gpt-4o-mini default; tier up to gpt-4o on low-confidence high-stakes.
+
+44
+00:09:17,143 --> 00:09:30,000
+HITL gate - pauses publication when score < threshold or any gap is low-confidence.
+
+45
+00:09:30,000 --> 00:09:33,333
+Headline numbers:
+
+46
+00:09:33,333 --> 00:09:36,667
+22 source documents - 14 regulatory PDFs + 8 policies.
+
+47
+00:09:36,667 --> 00:09:40,000
+3 specialized agents over a 12-stage pipeline.
+
+48
+00:09:40,000 --> 00:09:43,333
+~700 LLM calls per full assessment for under $0.10.
+
+49
+00:09:43,333 --> 00:09:46,667
+< 30 minutes from raw PDFs to audit-ready DOCX.
+
+50
+00:09:46,667 --> 00:09:50,000
+100% LLM call coverage in Langfuse traces.
+
+51
+00:09:50,000 --> 00:09:51,667
+Recap.
+
+52
+00:09:51,667 --> 00:09:53,333
+Layered, typed, observable Python system - not a notebook.
+
+53
+00:09:53,333 --> 00:09:55,000
+Three LCEL agents + RAG + NetworkX KG + deterministic scoring.
+
+54
+00:09:55,000 --> 00:09:56,667
+Audit-grade observability + resilience + HITL gate baked in.
+
+55
+00:09:56,667 --> 00:09:58,333
+Three reach surfaces: CLI, Gradio dashboard, FastAPI.
+
+56
+00:09:58,333 --> 00:10:00,000
+Thank you - questions welcome.

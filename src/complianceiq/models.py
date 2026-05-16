@@ -302,7 +302,7 @@ class AuditEvent(BaseModel):
     actor: str
     entity_type: str | None = None
     entity_id: str | None = None
-    payload: dict = Field(default_factory=dict)
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 class AssessmentSnapshot(BaseModel):

@@ -1,50 +1,50 @@
 {
-  "total_nodes": 4033,
-  "total_edges": 21284,
+  "total_nodes": 4411,
+  "total_edges": 23195,
   "node_types": {
-    "requirement": 3220,
+    "requirement": 3580,
     "domain": 10,
     "regulatory_file": 22,
-    "policy_chunk": 773,
+    "policy_chunk": 791,
     "policy_file": 8
   },
   "requirement_coverage": {
-    "partially_covered": 2764,
-    "unknown": 456
+    "partially_covered": 3107,
+    "unknown": 473
   },
-  "orphan_requirement_count": 456,
+  "orphan_requirement_count": 473,
   "top_cited_policies": [
     {
       "policy_file": "Cyber Insurance Policy Document.docx",
-      "citations": 3385
+      "citations": 3679
     },
     {
       "policy_file": "Specimen Reinsurance Agreement SEC.docx",
-      "citations": 2812
+      "citations": 3177
     },
     {
       "policy_file": "Governance and Corporate Structure for an Insurance Company.docx",
-      "citations": 2315
+      "citations": 2635
     },
     {
       "policy_file": "Risk Management and Compliance for an Insurance Company.docx",
-      "citations": 1334
+      "citations": 1515
     },
     {
       "policy_file": "Underwriting and Risk Assessment.docx",
-      "citations": 1301
+      "citations": 1451
     },
     {
       "policy_file": "Surplus Share Reinsurance Agreement.docx",
-      "citations": 1259
+      "citations": 1441
     },
     {
       "policy_file": "Quota Share Reinsurance Agreement.docx",
-      "citations": 1121
+      "citations": 1275
     },
     {
       "policy_file": "Non Proportional Reinsurance Agreement.docx",
-      "citations": 467
+      "citations": 542
     }
   ]
 }

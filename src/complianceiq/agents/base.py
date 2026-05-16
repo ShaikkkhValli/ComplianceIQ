@@ -140,12 +140,11 @@ class BaseAgent:
         if not cacheable:
             return _invoke()
 
-        # Render the prompt deterministically for the cache key
+        # Render the prompt deterministically for the cache key.
+        # Use a stable, agent-scoped key so we don't try to introspect the
+        # LCEL chain (RunnableBinding internals vary across LangChain versions).
         prompt_text = json.dumps(input_payload, sort_keys=True, default=str)
-        schema_name = (
-            chain.last.steps[-1].__class__.__name__
-            if hasattr(chain, "last") else type(chain).__name__
-        )
+        schema_name = agent_name
         return cached_llm_call(
             model=self.model_name,
             prompt=prompt_text,

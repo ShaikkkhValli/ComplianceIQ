@@ -21,13 +21,11 @@ task so the HTTP call doesn't block for 30 minutes. Clients poll /score or
 /history to detect completion.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +215,7 @@ def create_app():  # noqa: C901 - the route definitions inflate complexity but a
         return AssessAccepted(run_id=run_id)
 
     @app.post("/upload/policy", tags=["write"])
-    async def upload_policy(file: UploadFile = File(...)) -> dict[str, Any]:
+    async def upload_policy(file: Annotated[UploadFile, File()]) -> dict[str, Any]:
         if not file.filename or not file.filename.lower().endswith(".docx"):
             raise HTTPException(400, "Policy uploads must be .docx")
         POLICIES_DIR.mkdir(parents=True, exist_ok=True)
@@ -228,8 +226,8 @@ def create_app():  # noqa: C901 - the route definitions inflate complexity but a
 
     @app.post("/upload/regulation", tags=["write"])
     async def upload_regulation(
-        regulator: str = Query(..., description="Regulator subfolder name, e.g. 'irdai' or 'mas'."),
-        file: UploadFile = File(...),
+        file: Annotated[UploadFile, File()],
+        regulator: Annotated[str, Query(description="Regulator subfolder name, e.g. 'irdai' or 'mas'.")] = "irdai",
     ) -> dict[str, Any]:
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(400, "Regulatory uploads must be .pdf")
